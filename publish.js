@@ -1,8 +1,9 @@
-// publish.js
+// publish.js  (carousel version)
 //
 // Reads post.json (written by generate.js) and publishes it to Instagram via the
-// Meta Graph API. In DRY_RUN mode it only writes a preview to the GitHub Actions
-// job summary and does not post anything.
+// Meta Graph API. Multiple images are published as a swipeable carousel; a single
+// image is published as a normal photo post. In DRY_RUN mode it only writes a preview
+// to the GitHub Actions job summary and does not post anything.
 //
 // Environment:
 //   IG_ACCESS_TOKEN, IG_BUSINESS_ID   (required unless DRY_RUN)
@@ -57,6 +58,32 @@ async function waitForImage(url) {
   throw new Error(`Image URL never became reachable: ${url}. Is the repository public?`);
 }
 
+async function waitFinished(containerId, label) {
+  let status = "IN_PROGRESS";
+  for (let i = 0; i < 24; i++) {
+    const s = await graph("GET", containerId, { fields: "status_code" });
+    status = s.status_code;
+    if (status === "FINISHED") return;
+    if (status === "ERROR" || status === "EXPIRED") {
+      throw new Error(`${label} failed with status ${status}`);
+    }
+    await sleep(5000);
+  }
+  throw new Error(`${label} was not ready in time (last status ${status})`);
+}
+
+// Create one child image for a carousel. Tries with alt text first and falls back
+// to no alt text if the API rejects it.
+async function createCarouselItem(igId, imageUrl, altText) {
+  const base = { image_url: imageUrl, is_carousel_item: "true" };
+  try {
+    return await graph("POST", `${igId}/media`, { ...base, alt_text: altText.slice(0, 900) });
+  } catch (err) {
+    console.log(`  Retrying without alt text: ${err.message.slice(0, 200)}`);
+    return await graph("POST", `${igId}/media`, base);
+  }
+}
+
 async function main() {
   const post = JSON.parse(fs.readFileSync(path.join(__dirname, "post.json"), "utf8"));
   const repo = process.env.GITHUB_REPOSITORY;
@@ -65,16 +92,20 @@ async function main() {
     throw new Error("GITHUB_REPOSITORY / GITHUB_REF_NAME not set. This script is meant to run inside GitHub Actions.");
   }
 
-  const imageUrl = `https://raw.githubusercontent.com/${repo}/${branch}/${post.imageFile}`;
-  console.log(`Waiting for image: ${imageUrl}`);
-  await waitForImage(imageUrl);
+  const files = post.imageFiles || [post.imageFile];
+  const altTexts = post.altTexts || [post.altText || ""];
+  const urls = files.map((f) => `https://raw.githubusercontent.com/${repo}/${branch}/${f}`);
+
+  console.log(`Waiting for ${urls.length} image(s) to be reachable...`);
+  for (const u of urls) await waitForImage(u);
 
   if (DRY_RUN) {
+    const sheet = urls.map((u, i) => `<img src="${u}" width="200" alt="slide ${i + 1}">`).join(" ");
     const md =
       `## Draft preview (NOT posted)\n\n` +
-      `![preview](${imageUrl})\n\n` +
+      `${sheet}\n\n` +
       `**Pillar:** ${post.pillar}\n\n` +
-      `**Alt text:** ${post.altText}\n\n` +
+      `**Slides:** ${urls.length}\n\n` +
       `**Caption:**\n\n\`\`\`text\n${post.caption}\n\`\`\`\n`;
     console.log(md);
     if (process.env.GITHUB_STEP_SUMMARY) fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, md);
@@ -86,28 +117,38 @@ async function main() {
     throw new Error("IG_BUSINESS_ID or IG_ACCESS_TOKEN is not set");
   }
 
-  console.log("Creating media container...");
-  const container = await graph("POST", `${igId}/media`, {
-    image_url: imageUrl,
-    caption: post.caption,
-    alt_text: post.altText,
-  });
-
-  let status = "IN_PROGRESS";
-  for (let i = 0; i < 20; i++) {
-    const s = await graph("GET", container.id, { fields: "status_code" });
-    status = s.status_code;
-    console.log(`Container status: ${status}`);
-    if (status === "FINISHED") break;
-    if (status === "ERROR" || status === "EXPIRED") {
-      throw new Error(`Container failed with status ${status}`);
+  let creationId;
+  if (urls.length === 1) {
+    console.log("Creating single-image container...");
+    const container = await graph("POST", `${igId}/media`, {
+      image_url: urls[0],
+      caption: post.caption,
+      alt_text: (altTexts[0] || "").slice(0, 900),
+    });
+    await waitFinished(container.id, "Image container");
+    creationId = container.id;
+  } else {
+    console.log(`Creating ${urls.length} carousel items...`);
+    const childIds = [];
+    for (const [i, u] of urls.entries()) {
+      const child = await createCarouselItem(igId, u, altTexts[i] || "");
+      childIds.push(child.id);
+      console.log(`  Item ${i + 1}/${urls.length}: ${child.id}`);
     }
-    await sleep(5000);
+    for (const [i, id] of childIds.entries()) await waitFinished(id, `Carousel item ${i + 1}`);
+
+    console.log("Creating carousel container...");
+    const carousel = await graph("POST", `${igId}/media`, {
+      media_type: "CAROUSEL",
+      children: childIds.join(","),
+      caption: post.caption,
+    });
+    await waitFinished(carousel.id, "Carousel container");
+    creationId = carousel.id;
   }
-  if (status !== "FINISHED") throw new Error("Container was not ready in time");
 
   console.log("Publishing...");
-  const published = await graph("POST", `${igId}/media_publish`, { creation_id: container.id });
+  const published = await graph("POST", `${igId}/media_publish`, { creation_id: creationId });
 
   let permalink = "";
   try {
@@ -124,7 +165,7 @@ async function main() {
     headline: post.headline,
     subhead: post.subhead,
     caption: post.caption,
-    imageFile: post.imageFile,
+    imageFiles: files,
     mediaId: published.id,
     permalink,
   });

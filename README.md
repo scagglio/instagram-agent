@@ -4,11 +4,11 @@ An Instagram account that runs itself. On a schedule, GitHub Actions wakes up an
 
 1. Picks the next content pillar from your brief
 2. Has Claude draft a post, then has a second Claude call review it against your rules
-3. Renders a 1080x1350 image from a template (no Canva or design tool needed)
+3. Renders a swipeable carousel (cover hook, numbered content slides, closing call to action) as 1080x1350 images from a template, with no Canva or design tool needed
 4. Publishes it through the official Instagram Graph API
 5. Logs the post so it never repeats itself
 
-**Cost:** about $0 to run. Claude usage is roughly a cent or less per post with Haiku. GitHub Actions is free for public repos. The Meta API is free.
+**Cost:** about $0 to run. Claude usage is roughly a cent or two per post with Haiku. GitHub Actions is free for public repos. The Meta API is free.
 
 ---
 
@@ -97,10 +97,21 @@ Edit `account.json`. Replace every line marked `EXAMPLE - REPLACE`:
 - `design`: colors for the image template. Do not put double quotes inside `fontFamily`.
 - `model`: Haiku is cheap and fine. For better writing, try `claude-sonnet-5-5` (still only a few cents per post).
 
+
+### Carousel settings (optional)
+
+Posts are swipeable carousels by default: a cover with a hook, numbered content slides, and a closing slide that invites people to save, share and follow. Add this line to `account.json` to change the length:
+
+```json
+  "slideCount": 6,
+```
+
+`slideCount` is the total number of slides including the cover and the closing slide. Allowed values are 3 to 10 and the default is 6. Carousels get more swipes and saves than single images, which is what Instagram rewards.
+
 ## Part 6: Test with dry runs (do this several times)
 
 1. **Actions tab > Post to Instagram > Run workflow.** Leave **Draft only** checked.
-2. When it finishes, open the run and look at the **Summary**. You will see the image preview, alt text and caption. Nothing is posted.
+2. When it finishes, open the run and look at the **Summary**. You will see a row of slide previews and the caption. Nothing is posted.
 3. Adjust `account.json` until the drafts are consistently good. Run 5-10 dry runs.
 
 ## Part 7: First live post
@@ -138,13 +149,14 @@ Edit `account.json`. Replace every line marked `EXAMPLE - REPLACE`:
 | "No acceptable draft after 3 attempts" | Your rules conflict with your niche, or are too strict. Loosen them or raise `maxAttempts` |
 | Text looks wrong or boxes appear instead of letters | Font missing. Keep the "Install fonts" step in the workflow |
 | Push rejected in workflow | Workflow permissions not set to read and write (Part 4, step 4) |
+| "Commit images" step fails on a re-run | Use **Run workflow** for a fresh run instead of **Re-run jobs** |
 
 ## Files
 
 | File | Purpose |
 |---|---|
 | `account.json` | Your brand brief, rules and design |
-| `generate.js` | Drafts, reviews and renders the post |
+| `generate.js` | Drafts, reviews and renders the carousel slides |
 | `publish.js` | Posts to Instagram (or writes a dry-run preview) |
 | `history.json` | Log of published posts, used to avoid repeats |
 | `.github/workflows/post.yml` | The schedule and pipeline |
