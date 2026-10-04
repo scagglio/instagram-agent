@@ -2,12 +2,28 @@ name: Post to Instagram
 
 on:
   schedule:
-    - cron: '0 15 * * 1,4'  # Mondays and Thursdays, 15:00 UTC — edit to taste
-  workflow_dispatch: {}      # lets you trigger a run manually from the Actions tab
+    - cron: '0 15 * * 1,3,5'   # Mon/Wed/Fri 15:00 UTC. Edit to change your schedule.
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Draft only (do not post to Instagram)'
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+
+concurrency:
+  group: instagram-post
+  cancel-in-progress: false
 
 jobs:
   post:
     runs-on: ubuntu-latest
+    env:
+      # Manual runs follow the dry_run checkbox.
+      # Scheduled runs only post for real when the repo variable AUTO_POST is 'true'.
+      DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run == true || github.event_name != 'workflow_dispatch' && vars.AUTO_POST != 'true' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -15,16 +31,37 @@ jobs:
         with:
           node-version: '20'
 
-      - run: npm install
+      - name: Install fonts for image rendering
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq fonts-dejavu-core fonts-liberation
 
-      - name: Generate caption + image
-        run: npm run generate
+      - name: Install dependencies
+        run: npm install
+
+      - name: Generate post (caption + image)
+        run: node generate.js
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          CANVA_API_TOKEN: ${{ secrets.CANVA_API_TOKEN }}
 
-      - name: Publish to Instagram
-        run: npm run publish
+      - name: Commit image so Instagram can fetch it
+        run: |
+          if [ "$DRY_RUN" = "true" ]; then DIR=drafts; else DIR=images; fi
+          git config user.name "instagram-agent"
+          git config user.email "instagram-agent@users.noreply.github.com"
+          git add "$DIR"
+          git commit -m "Add $DIR image" || echo "Nothing to commit"
+          git push
+
+      - name: Publish (or preview if dry run)
+        run: node publish.js
         env:
           IG_ACCESS_TOKEN: ${{ secrets.IG_ACCESS_TOKEN }}
           IG_BUSINESS_ID: ${{ secrets.IG_BUSINESS_ID }}
+
+      - name: Save post history
+        if: env.DRY_RUN != 'true'
+        run: |
+          git add history.json
+          git commit -m "Log published post" || echo "Nothing to commit"
+          git push

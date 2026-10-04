@@ -1,12 +1,14 @@
 {
   "name": "instagram-agent",
-  "version": "1.0.0",
-  "description": "Parameter-driven Instagram content generation and publishing agent",
+  "version": "2.0.0",
+  "private": true,
   "type": "commonjs",
+  "engines": { "node": ">=20" },
   "scripts": {
-    "generate": "node scripts/generate.js",
-    "publish": "node scripts/publish.js"
+    "generate": "node generate.js",
+    "publish": "node publish.js"
   },
-  "license": "UNLICENSED",
-  "private": true
+  "dependencies": {
+    "sharp": "^0.33.5"
+  }
 }
