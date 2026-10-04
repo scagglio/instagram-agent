@@ -28,9 +28,9 @@
   "captionMaxWords": 90,
   "maxAttempts": 3,
   "design": {
-    "background": "#14213D",
+    "background": "#0F172A",
     "text": "#FFFFFF",
-    "accent": "#FCA311",
+    "accent": "#FACC15",
     "fontFamily": "DejaVu Sans, Liberation Sans, Arial, sans-serif"
   }
 }
