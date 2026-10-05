@@ -3,6 +3,7 @@
   "model": "claude-haiku-4-5-20251001",
   "niche": "3D printing tips, techniques and craft ideas for hobbyists, plus showcasing the appeal of handmade 3D printed crafts",
   "audience": "3D printing enthusiasts, crafters and makers, and people interested in buying 3D printed crafts and gifts",
+  "hookStyle": "Bold, confident, a little provocative. Prefer short punchy phrasing.",
   "voice": "friendly, enthusiastic and hands-on; speaks like a helpful maker friend; plain language, explains jargon briefly, never preachy or salesy",
   "contentPillars": [
     "Beginner-friendly 3D printing tip",
