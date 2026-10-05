@@ -16,12 +16,13 @@
     "Keep every post positive, practical and safe for a general audience.",
     "Do not claim to sell, ship or offer any specific product, price, discount or custom order, and do not mention a shop, website or link in bio.",
     "Do not describe personal experiences, specific past projects or customer stories as fact. Speak in general, helpful terms.",
-    "Do not mention or compare specific printer, filament or software brands.",
+    //"Do not mention or compare specific printer, filament or software brands.",
     "Do not claim any printed item or material is food safe, waterproof, heat proof, or strong enough for safety-critical use.",
     "Do not give medical, legal or financial advice.",
     "Do not make precise statistical claims, invent quotes, or cite studies unless they are very well established.",
     "Do not suggest printing copyrighted characters, logos or branded designs.",
     "Do not mention or tag other people, brands or accounts.",
+    "Do not use em dashes. Use commas or periods instead.",
     "Do not make promises or guarantees about results."
   ],  "bannedTopics": [
     "weapons, firearms or firearm parts",
