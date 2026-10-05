@@ -86,6 +86,10 @@ async function draftPost(pillar, history, feedback) {
     `You run an Instagram account with no human editor, so every post must be safe to publish exactly as written.\n\n` +
     briefText();
 
+  // Optional per-pillar guidance from account.json -> "pillarStyles"
+  const style = (account.pillarStyles || {})[pillar];
+  const slideGuidance = style || "One concrete, actionable idea per slide, in an order that builds.";
+
   const user =
     `Write the next swipeable carousel post (${TOTAL_SLIDES} slides in total).\n` +
     `Content pillar for this post: ${pillar}\n` +
@@ -94,7 +98,7 @@ async function draftPost(pillar, history, feedback) {
     (feedback ? `\nYour previous draft was rejected. Reason: ${feedback}\nFix this in the new draft.\n` : "") +
     `\nStructure:\n` +
     `- cover: a scroll-stopping hook. Use curiosity, a common mistake, or a specific benefit. Avoid generic titles like "3D Printing Tips".\n` +
-    `- slides: exactly ${CONTENT_COUNT} content slides. One concrete, actionable idea per slide, in an order that builds. Each has a short title and a one to two sentence body.\n` +
+    `- slides: exactly ${CONTENT_COUNT} content slides. ${slideGuidance} Each has a short title and a one to two sentence body.\n` +
     `- closing: a final slide that invites the reader to save, share or comment. No links, no mention of a shop.\n` +
     `- caption: the first line hooks the reader. Keep it short. End with a question that invites comments.\n\n` +
     `Requirements:\n` +
@@ -149,6 +153,7 @@ async function reviewPost(post) {
     `- It follows every rule and avoids every banned topic above.\n` +
     `- It contains no invented statistics, quotes, studies, or news, and no risky factual claims.\n` +
     `- The advice is accurate and safe to follow.\n` +
+    `- Any prediction or forward-looking statement is hedged (could, may, is likely to) and never presented as certain.\n` +
     `- It matches the stated voice and audience.\n` +
     `- It is not offensive, misleading, or spammy.\n\n` +
     `Respond with ONLY valid JSON: {"approved": true or false, "reason": "one sentence"}`;
@@ -303,7 +308,11 @@ async function main() {
 
   const history = loadHistory();
   const pillars = account.contentPillars;
-  const pillar = pillars[history.length % pillars.length];
+  // Live runs rotate through the pillars in order. Dry runs pick a random one, because
+  // dry runs are not logged to history and would otherwise always show the first pillar.
+  const pillar = DRY_RUN
+    ? pillars[Math.floor(Math.random() * pillars.length)]
+    : pillars[history.length % pillars.length];
   console.log(`Pillar: ${pillar} | Slides: ${TOTAL_SLIDES}`);
 
   let approved = null;
