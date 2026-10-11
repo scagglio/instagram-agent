@@ -9,6 +9,11 @@ on:
         description: 'Draft only (do not post to Instagram)'
         type: boolean
         default: true
+      format:
+        description: 'Post format (leave on "config" to use postFormat from account.json)'
+        type: choice
+        options: [config, carousel, reel, both]
+        default: config
 
 permissions:
   contents: write
@@ -23,6 +28,7 @@ jobs:
     env:
       # Manual runs follow the dry_run checkbox.
       # Scheduled runs only post for real when the repo variable AUTO_POST is 'true'.
+      POST_FORMAT: ${{ github.event_name == 'workflow_dispatch' && inputs.format != 'config' && inputs.format || '' }}
       DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run == true || github.event_name != 'workflow_dispatch' && vars.AUTO_POST != 'true' }}
     steps:
       - uses: actions/checkout@v4
@@ -31,10 +37,10 @@ jobs:
         with:
           node-version: '20'
 
-      - name: Install fonts for image rendering
+      - name: Install fonts and ffmpeg
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq fonts-dejavu-core fonts-liberation
+          sudo apt-get install -y -qq fonts-dejavu-core fonts-liberation ffmpeg
 
       - name: Install dependencies
         run: npm install
@@ -44,13 +50,14 @@ jobs:
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
 
-      - name: Commit image so Instagram can fetch it
+      - name: Commit images so Instagram can fetch them
         run: |
-          if [ "$DRY_RUN" = "true" ]; then DIR=drafts; else DIR=images; fi
+          if [ "$DRY_RUN" = "true" ]; then DIRS="drafts reels-drafts"; else DIRS="images reels"; fi
           git config user.name "instagram-agent"
           git config user.email "instagram-agent@users.noreply.github.com"
-          git add "$DIR"
-          git commit -m "Add $DIR image" || echo "Nothing to commit"
+          for d in $DIRS; do if [ -d "$d" ]; then git add "$d"; fi; done
+          git commit -m "Add post media" || echo "Nothing to commit"
+          git pull --rebase origin "$GITHUB_REF_NAME"
           git push
 
       - name: Publish (or preview if dry run)
@@ -59,9 +66,18 @@ jobs:
           IG_ACCESS_TOKEN: ${{ secrets.IG_ACCESS_TOKEN }}
           IG_BUSINESS_ID: ${{ secrets.IG_BUSINESS_ID }}
 
+      - name: Upload reel preview
+        if: ${{ !cancelled() && env.DRY_RUN == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: reel-preview
+          path: reels-drafts/*.mp4
+          if-no-files-found: ignore
+
       - name: Save post history
-        if: env.DRY_RUN != 'true'
+        if: ${{ !cancelled() && env.DRY_RUN != 'true' }}
         run: |
           git add history.json
           git commit -m "Log published post" || echo "Nothing to commit"
+          git pull --rebase origin "$GITHUB_REF_NAME"
           git push
