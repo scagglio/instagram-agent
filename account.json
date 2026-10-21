@@ -1,5 +1,5 @@
 {
-    "handle": "@3dCharged",
+  "handle": "@3dCharged",
   "model": "claude-haiku-4-5-20251001",
   "niche": "3D printing tips, techniques and craft ideas for hobbyists, plus showcasing the appeal of handmade 3D printed crafts",
   "audience": "3D printing enthusiasts, crafters and makers, and people interested in buying 3D printed crafts and gifts",
@@ -24,7 +24,8 @@
     "Do not mention or tag other people, brands or accounts.",
     "Do not use em dashes. Use commas or periods instead.",
     "Do not make promises or guarantees about results."
-  ],  "bannedTopics": [
+  ],
+  "bannedTopics": [
     "weapons, firearms or firearm parts",
     "politics and elections",
     "religion",
@@ -34,11 +35,14 @@
   ],
   "hashtagCount": 6,
   "captionMaxWords": 90,
-  "maxAttempts": 3,
+  "maxAttempts": 4,
   "design": {
     "background": "#0F172A",
     "text": "#FFFFFF",
     "accent": "#FACC15",
     "fontFamily": "DejaVu Sans, Liberation Sans, Arial, sans-serif"
+  },
+  "pillarStyles": {
+    "Craft and gift ideas you can make with a 3D printer": "One craft or gift idea per slide, with a practical tip for printing or finishing it. Prefer decorative and desk items (ornaments, organizers, nameplates, figurines, wall art, keychains, cable holders). Avoid items that hold food, drink or water, carry weight, or touch heat, so no safety claims are needed. Keep cheat sheet values very short, like \"PLA\" or \"0.2 mm\"."
   }
 }

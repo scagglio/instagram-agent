@@ -142,7 +142,10 @@ async function draftPost(pillar, history, feedback) {
     `Content pillar for this post: ${pillar}\n` +
     `Today's date: ${new Date().toISOString().slice(0, 10)}\n\n` +
     `Recent posts (do not repeat or closely paraphrase these):\n${recent}\n` +
-    (feedback ? `\nYour previous draft was rejected. Reason: ${feedback}\nFix this in the new draft.\n` : "") +
+    (feedback
+      ? `\nYour earlier drafts were rejected. Fix EVERY problem below in the new draft, and do not reintroduce any of them:\n${feedback}\n` +
+        `Count words and characters carefully: limits are hard limits, so aim well under them.\n`
+      : "") +
     `\nThe goal is a post people cannot scroll past and want to save. Make it snappy: short, punchy, concrete, with real numbers where they are genuinely useful.\n\n` +
     `Structure:\n` +
     `- cover.headline: a gripping hook that makes the reader feel they MUST swipe. Use a counterintuitive claim, a curiosity gap that promises a specific payoff, vivid stakes, or a pointed question. Be specific. Never use label-style titles like "Top 5 tips". The hook must be honest: the slides have to deliver on it, with no fake urgency or fear-mongering.${account.hookStyle ? " Extra hook guidance: " + account.hookStyle : ""}\n` +
@@ -180,13 +183,24 @@ const words = (s) => String(s || "").trim().split(/\s+/).filter(Boolean).length;
 const isStr = (v) => typeof v === "string" && v.trim().length > 0;
 const optStr = (v) => (typeof v === "string" ? v.trim() : "");
 
+// Returns null when the draft passes, otherwise a list of every problem found. Each problem
+// quotes the offending text and its length so the next draft can fix all of them at once.
 function validate(p) {
   if (!p || typeof p !== "object") return "Draft was not a JSON object";
+  const problems = [];
+  const wordLimit = (label, text, max, slack = 0) => {
+    const n = words(text);
+    if (n > max + slack) problems.push(`${label} "${String(text).trim()}" is ${n} words (max ${max})`);
+  };
+  const charLimit = (label, text, max, slack = 0) => {
+    const n = String(text || "").trim().length;
+    if (n > max + slack) problems.push(`${label} "${String(text).trim()}" is ${n} characters (max ${max})`);
+  };
 
   if (!p.cover || !isStr(p.cover.headline) || !isStr(p.cover.subhead)) return "cover needs a headline and subhead";
-  if (words(p.cover.headline) > 8) return "cover headline is longer than 8 words";
-  if (words(p.cover.subhead) > 16) return "cover subhead is longer than 16 words";
-  if (words(p.cover.kicker) > 7) return "cover kicker is longer than 6 words";
+  wordLimit("cover headline", p.cover.headline, 8);
+  wordLimit("cover subhead", p.cover.subhead, 16);
+  wordLimit("cover kicker", p.cover.kicker, 6, 1);
 
   if (!Array.isArray(p.slides) || p.slides.length !== CONTENT_COUNT) {
     return `slides must be an array of exactly ${CONTENT_COUNT} items`;
@@ -194,31 +208,32 @@ function validate(p) {
   for (const [i, s] of p.slides.entries()) {
     const n = i + 1;
     if (!s || !isStr(s.title) || !isStr(s.body)) return `slide ${n} needs a title and body`;
-    if (words(s.title) > 7) return `slide ${n} title is longer than 6 words`;
-    if (words(s.body) > 30) return `slide ${n} body is longer than 28 words`;
-    if (optStr(s.stat).length > 14) return `slide ${n} stat is longer than 12 characters`;
-    if (words(s.statLabel) > 6) return `slide ${n} statLabel is longer than 5 words`;
-    if (words(s.tip) > 18) return `slide ${n} tip is longer than 16 words`;
+    wordLimit(`slide ${n} title`, s.title, 6, 1);
+    wordLimit(`slide ${n} body`, s.body, 28, 2);
+    charLimit(`slide ${n} stat`, optStr(s.stat), 12, 2);
+    wordLimit(`slide ${n} statLabel`, s.statLabel, 5, 1);
+    wordLimit(`slide ${n} tip`, s.tip, 16, 2);
   }
 
-  if (!p.cheat || !isStr(p.cheat.title) || words(p.cheat.title) > 6) return "cheat needs a title of at most 5 words";
+  if (!p.cheat || !isStr(p.cheat.title)) return "cheat needs a title";
+  wordLimit("cheat title", p.cheat.title, 5, 1);
   if (!Array.isArray(p.cheat.items) || p.cheat.items.length < 4 || p.cheat.items.length > 6) {
     return "cheat.items must have between 4 and 6 items";
   }
   for (const [i, it] of p.cheat.items.entries()) {
     if (!it || !isStr(it.label) || !isStr(it.value)) return `cheat item ${i + 1} needs a label and a value`;
-    if (words(it.label) > 5) return `cheat item ${i + 1} label is longer than 4 words`;
-    if (it.value.trim().length > 16) return `cheat item ${i + 1} value is longer than 14 characters`;
+    wordLimit(`cheat item ${i + 1} label`, it.label, 4, 1);
+    charLimit(`cheat item ${i + 1} value`, it.value, 14, 2);
   }
 
   if (!p.closing || !isStr(p.closing.headline) || !isStr(p.closing.body)) return "closing needs a headline and body";
-  if (words(p.closing.headline) > 8) return "closing headline is longer than 8 words";
-  if (words(p.closing.body) > 22) return "closing body is longer than 20 words";
-  if (words(p.closing.tagline) > 9) return "closing tagline is longer than 8 words";
+  wordLimit("closing headline", p.closing.headline, 8);
+  wordLimit("closing body", p.closing.body, 20, 2);
+  wordLimit("closing tagline", p.closing.tagline, 8, 1);
 
   if (!isStr(p.caption)) return "caption is missing";
-  if (words(p.caption) > account.captionMaxWords + 10) return `caption is longer than ${account.captionMaxWords} words`;
-  if (!Array.isArray(p.hashtags) || p.hashtags.length === 0) return "hashtags must be a non-empty array";
+  if (words(p.caption) > account.captionMaxWords + 10) problems.push(`caption is ${words(p.caption)} words (max ${account.captionMaxWords})`);
+  if (!Array.isArray(p.hashtags) || p.hashtags.length === 0) problems.push("hashtags must be a non-empty array");
 
   const allText = [
     p.cover.headline, p.cover.subhead, p.cover.kicker,
@@ -226,11 +241,11 @@ function validate(p) {
     p.cheat.title, ...p.cheat.items.flatMap((it) => [it.label, it.value]),
     p.closing.headline, p.closing.body, p.closing.tagline,
   ].map((t) => String(t || "")).join(" ");
-  if (/\p{Extended_Pictographic}/u.test(allText)) return "slide text must not contain emoji";
+  if (/\p{Extended_Pictographic}/u.test(allText)) problems.push("slide text must not contain emoji");
   if (/[–—]/.test(allText + " " + p.caption) && (account.rules || []).some((r) => /em dash/i.test(r))) {
-    return "text contains an em dash or en dash; use commas or periods instead";
+    problems.push("text contains an em dash or en dash; use commas or periods instead");
   }
-  return null;
+  return problems.length ? problems.join("; ") : null;
 }
 
 async function reviewPost(post) {
@@ -243,12 +258,15 @@ async function reviewPost(post) {
     `Review this draft carousel post:\n${JSON.stringify(post, null, 2)}\n\n` +
     `Approve only if ALL of these are true:\n` +
     `- It follows every rule and avoids every banned topic above.\n` +
+    `  Judge claims by what the text actually says: naming an item or what it is used for (a plant pot stand, a pen cup, a planter) is fine. ` +
+    `Reject only text that states or clearly implies a print is food safe, waterproof or watertight, heat proof, or safe for load-bearing or safety-critical use.\n` +
     `- It contains no invented statistics, quotes, studies, or news, and no risky factual claims.\n` +
     `- Every number is a widely accepted typical starting-point value or range for 3D printing (not a made-up measurement), and is not presented as a guarantee.\n` +
     `- The advice is accurate and safe to follow, and the cheat sheet matches what the slides say.\n` +
     `- Any prediction or forward-looking statement is hedged and never presented as certain.\n` +
     `- The cover hook is honest: the slides deliver what it promises, with no fake urgency or exaggeration.\n` +
     `- It matches the stated voice and audience, and is not offensive, misleading, or spammy.\n\n` +
+    `If you reject, the reason must name the exact text to change and how to fix it.\n` +
     `Respond with ONLY valid JSON: {"approved": true or false, "reason": "one sentence"}`;
 
   return parseJson(await callClaude(system, user, 300));
@@ -723,53 +741,71 @@ async function main() {
   const pillars = account.contentPillars;
   // Live runs rotate through the pillars in order. Dry runs pick a random one, because
   // dry runs are not logged to history and would otherwise always show the first pillar.
-  const pillar = DRY_RUN
-    ? pillars[Math.floor(Math.random() * pillars.length)]
-    : pillars[history.length % pillars.length];
-  console.log(`Pillar: ${pillar} | Slides: ${TOTAL_SLIDES} | Format: ${POST_FORMAT}`);
+  const first = DRY_RUN
+    ? Math.floor(Math.random() * pillars.length)
+    : history.length % pillars.length;
+  // If a pillar cannot produce an acceptable post, fall back to the next one instead of
+  // failing (otherwise every scheduled run retries the same stuck pillar forever).
+  const tryPillars = [pillars[first], pillars[(first + 1) % pillars.length]];
 
   let approved = null;
-  let feedback = "";
+  let pillar = null;
+  let lastProblem = "";
 
-  for (let attempt = 1; attempt <= account.maxAttempts; attempt++) {
-    console.log(`Draft attempt ${attempt}/${account.maxAttempts}...`);
-    let candidate;
-    try {
-      candidate = await draftPost(pillar, history, feedback);
-    } catch (err) {
-      if (!(err instanceof ParseError)) throw err; // real problems (bad key, missing config) should fail loudly
-      feedback = `Your response could not be parsed (${err.message}). Respond with only the JSON object.`;
-      console.log(`  Unparseable draft: ${err.message}`);
-      continue;
+  for (const candidatePillar of tryPillars) {
+    console.log(`Pillar: ${candidatePillar} | Slides: ${TOTAL_SLIDES} | Format: ${POST_FORMAT}`);
+    const problems = []; // every problem so far, so fixes don't undo earlier fixes
+
+    for (let attempt = 1; attempt <= account.maxAttempts; attempt++) {
+      console.log(`Draft attempt ${attempt}/${account.maxAttempts}...`);
+      const feedback = problems.map((p, i) => `${i + 1}. ${p}`).join("\n");
+      let candidate;
+      try {
+        candidate = await draftPost(candidatePillar, history, feedback);
+      } catch (err) {
+        if (!(err instanceof ParseError)) throw err; // real problems (bad key, missing config) should fail loudly
+        lastProblem = `Your response could not be parsed (${err.message}). Respond with only the JSON object.`;
+        problems.push(lastProblem);
+        console.log(`  Unparseable draft: ${err.message}`);
+        continue;
+      }
+
+      const problem = validate(candidate);
+      if (problem) {
+        lastProblem = problem;
+        problems.push(problem);
+        console.log(`  Failed local checks: ${problem}`);
+        continue;
+      }
+
+      let review;
+      try {
+        review = await reviewPost(candidate);
+      } catch (err) {
+        if (!(err instanceof ParseError)) throw err;
+        lastProblem = "The reviewer could not evaluate the draft. Keep it simple and within the rules.";
+        console.log(`  Unparseable review: ${err.message}`);
+        continue;
+      }
+      if (review.approved === true) {
+        approved = candidate;
+        console.log("  Approved by reviewer.");
+        break;
+      }
+      lastProblem = review.reason || "Reviewer rejected the draft.";
+      problems.push(`Reviewer: ${lastProblem}`);
+      console.log(`  Rejected by reviewer: ${lastProblem}`);
     }
 
-    const problem = validate(candidate);
-    if (problem) {
-      feedback = problem;
-      console.log(`  Failed local checks: ${problem}`);
-      continue;
-    }
-
-    let review;
-    try {
-      review = await reviewPost(candidate);
-    } catch (err) {
-      if (!(err instanceof ParseError)) throw err;
-      feedback = "The reviewer could not evaluate the draft. Keep it simple and within the rules.";
-      console.log(`  Unparseable review: ${err.message}`);
-      continue;
-    }
-    if (review.approved === true) {
-      approved = candidate;
-      console.log("  Approved by reviewer.");
+    if (approved) {
+      pillar = candidatePillar;
       break;
     }
-    feedback = review.reason || "Reviewer rejected the draft.";
-    console.log(`  Rejected by reviewer: ${feedback}`);
+    console.log(`No acceptable draft for "${candidatePillar}".`);
   }
 
   if (!approved) {
-    throw new Error(`No acceptable draft after ${account.maxAttempts} attempts. Last problem: ${feedback}`);
+    throw new Error(`No acceptable draft for ${tryPillars.length} pillars. Last problem: ${lastProblem}`);
   }
 
   const hashtags = approved.hashtags
