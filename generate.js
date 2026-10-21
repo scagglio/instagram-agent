@@ -183,69 +183,104 @@ const words = (s) => String(s || "").trim().split(/\s+/).filter(Boolean).length;
 const isStr = (v) => typeof v === "string" && v.trim().length > 0;
 const optStr = (v) => (typeof v === "string" ? v.trim() : "");
 
-// Returns null when the draft passes, otherwise a list of every problem found. Each problem
-// quotes the offending text and its length so the next draft can fix all of them at once.
-function validate(p) {
+// Every length limit, as [path, text, max, unit, slack]. Slack is the tolerance the renderer
+// allows past the limit given to Claude.
+function lengthRules(p) {
+  const r = [
+    ["cover.headline", p.cover.headline, 8, "words", 0],
+    ["cover.subhead", p.cover.subhead, 16, "words", 0],
+    ["cover.kicker", p.cover.kicker, 6, "words", 1],
+  ];
+  p.slides.forEach((s, i) => {
+    r.push([`slides.${i}.title`, s.title, 6, "words", 1]);
+    r.push([`slides.${i}.body`, s.body, 28, "words", 2]);
+    r.push([`slides.${i}.stat`, optStr(s.stat), 12, "characters", 2]);
+    r.push([`slides.${i}.statLabel`, s.statLabel, 5, "words", 1]);
+    r.push([`slides.${i}.tip`, s.tip, 16, "words", 2]);
+  });
+  r.push(["cheat.title", p.cheat.title, 5, "words", 1]);
+  p.cheat.items.forEach((it, i) => {
+    r.push([`cheat.items.${i}.label`, it.label, 4, "words", 1]);
+    r.push([`cheat.items.${i}.value`, it.value, 14, "characters", 2]);
+  });
+  r.push(["closing.headline", p.closing.headline, 8, "words", 0]);
+  r.push(["closing.body", p.closing.body, 20, "words", 2]);
+  r.push(["closing.tagline", p.closing.tagline, 8, "words", 1]);
+  return r;
+}
+
+const measure = (text, unit) => (unit === "words" ? words(text) : String(text || "").trim().length);
+
+// Fields that are over their limit: [{path, text, max, unit, count}]
+function lengthIssues(p) {
+  return lengthRules(p)
+    .map(([path, text, max, unit, slack]) => ({ path, text: String(text || "").trim(), max, unit, slack, count: measure(text, unit) }))
+    .filter((f) => f.count > f.max + f.slack);
+}
+
+const describeIssue = (f) => `${f.path} "${f.text}" is ${f.count} ${f.unit} (max ${f.max})`;
+
+// Structural problems that make the draft unusable (null when the shape is fine)
+function structureProblem(p) {
   if (!p || typeof p !== "object") return "Draft was not a JSON object";
-  const problems = [];
-  const wordLimit = (label, text, max, slack = 0) => {
-    const n = words(text);
-    if (n > max + slack) problems.push(`${label} "${String(text).trim()}" is ${n} words (max ${max})`);
-  };
-  const charLimit = (label, text, max, slack = 0) => {
-    const n = String(text || "").trim().length;
-    if (n > max + slack) problems.push(`${label} "${String(text).trim()}" is ${n} characters (max ${max})`);
-  };
-
   if (!p.cover || !isStr(p.cover.headline) || !isStr(p.cover.subhead)) return "cover needs a headline and subhead";
-  wordLimit("cover headline", p.cover.headline, 8);
-  wordLimit("cover subhead", p.cover.subhead, 16);
-  wordLimit("cover kicker", p.cover.kicker, 6, 1);
-
-  if (!Array.isArray(p.slides) || p.slides.length !== CONTENT_COUNT) {
-    return `slides must be an array of exactly ${CONTENT_COUNT} items`;
-  }
+  if (!Array.isArray(p.slides) || p.slides.length !== CONTENT_COUNT) return `slides must be an array of exactly ${CONTENT_COUNT} items`;
   for (const [i, s] of p.slides.entries()) {
-    const n = i + 1;
-    if (!s || !isStr(s.title) || !isStr(s.body)) return `slide ${n} needs a title and body`;
-    wordLimit(`slide ${n} title`, s.title, 6, 1);
-    wordLimit(`slide ${n} body`, s.body, 28, 2);
-    charLimit(`slide ${n} stat`, optStr(s.stat), 12, 2);
-    wordLimit(`slide ${n} statLabel`, s.statLabel, 5, 1);
-    wordLimit(`slide ${n} tip`, s.tip, 16, 2);
+    if (!s || !isStr(s.title) || !isStr(s.body)) return `slide ${i + 1} needs a title and body`;
   }
-
   if (!p.cheat || !isStr(p.cheat.title)) return "cheat needs a title";
-  wordLimit("cheat title", p.cheat.title, 5, 1);
-  if (!Array.isArray(p.cheat.items) || p.cheat.items.length < 4 || p.cheat.items.length > 6) {
-    return "cheat.items must have between 4 and 6 items";
-  }
+  if (!Array.isArray(p.cheat.items) || p.cheat.items.length < 4 || p.cheat.items.length > 6) return "cheat.items must have between 4 and 6 items";
   for (const [i, it] of p.cheat.items.entries()) {
     if (!it || !isStr(it.label) || !isStr(it.value)) return `cheat item ${i + 1} needs a label and a value`;
-    wordLimit(`cheat item ${i + 1} label`, it.label, 4, 1);
-    charLimit(`cheat item ${i + 1} value`, it.value, 14, 2);
   }
-
   if (!p.closing || !isStr(p.closing.headline) || !isStr(p.closing.body)) return "closing needs a headline and body";
-  wordLimit("closing headline", p.closing.headline, 8);
-  wordLimit("closing body", p.closing.body, 20, 2);
-  wordLimit("closing tagline", p.closing.tagline, 8, 1);
-
   if (!isStr(p.caption)) return "caption is missing";
+  return null;
+}
+
+// Problems other than field lengths (caption, hashtags, emoji, dashes)
+function otherProblems(p) {
+  const problems = [];
   if (words(p.caption) > account.captionMaxWords + 10) problems.push(`caption is ${words(p.caption)} words (max ${account.captionMaxWords})`);
   if (!Array.isArray(p.hashtags) || p.hashtags.length === 0) problems.push("hashtags must be a non-empty array");
-
-  const allText = [
-    p.cover.headline, p.cover.subhead, p.cover.kicker,
-    ...p.slides.flatMap((s) => [s.title, s.body, s.stat, s.statLabel, s.tip]),
-    p.cheat.title, ...p.cheat.items.flatMap((it) => [it.label, it.value]),
-    p.closing.headline, p.closing.body, p.closing.tagline,
-  ].map((t) => String(t || "")).join(" ");
+  const allText = lengthRules(p).map((r) => String(r[1] || "")).join(" ");
   if (/\p{Extended_Pictographic}/u.test(allText)) problems.push("slide text must not contain emoji");
   if (/[–—]/.test(allText + " " + p.caption) && (account.rules || []).some((r) => /em dash/i.test(r))) {
     problems.push("text contains an em dash or en dash; use commas or periods instead");
   }
+  return problems;
+}
+
+// Returns null when the draft passes, otherwise every problem found, each quoting the offending text
+function validate(p) {
+  const structural = structureProblem(p);
+  if (structural) return structural;
+  const problems = [...lengthIssues(p).map(describeIssue), ...otherProblems(p)];
   return problems.length ? problems.join("; ") : null;
+}
+
+function setPath(obj, path, value) {
+  const keys = path.split(".");
+  let o = obj;
+  for (const k of keys.slice(0, -1)) o = o[k];
+  o[keys[keys.length - 1]] = value;
+}
+
+// When a draft's only problems are fields that run long, ask for shorter versions of just
+// those fields instead of throwing the whole post away.
+async function shortenFields(draft, issues) {
+  const list = issues.map((f) => `- ${f.path}: "${f.text}" (${f.count} ${f.unit}, must be at most ${f.max} ${f.unit})`).join("\n");
+  const user =
+    `These fields of an Instagram carousel are too long for the slide design:\n${list}\n\n` +
+    `Rewrite each one so it fits its limit with room to spare, keeping the same meaning. ` +
+    `Use plain words, no emoji, no em dashes. Short fragments are fine (for example "Wipe with IPA", "0.2 mm", "Dry first").\n` +
+    `Respond with ONLY valid JSON mapping each path to its new text, e.g. {"${issues[0].path}": "..."}`;
+  const fixes = parseJson(await callClaude("You shorten text to fit tight design limits.", user, 600));
+  const next = JSON.parse(JSON.stringify(draft));
+  for (const f of issues) {
+    if (typeof fixes[f.path] === "string" && fixes[f.path].trim()) setPath(next, f.path, fixes[f.path].trim());
+  }
+  return next;
 }
 
 async function reviewPost(post) {
@@ -770,6 +805,19 @@ async function main() {
         continue;
       }
 
+      // Fix fields that only run long, up to twice, without redrafting the whole post
+      for (let round = 0; round < 2 && !structureProblem(candidate) && otherProblems(candidate).length === 0; round++) {
+        const issues = lengthIssues(candidate);
+        if (!issues.length) break;
+        console.log(`  Shortening ${issues.length} long field(s): ${issues.map(describeIssue).join("; ")}`);
+        try {
+          candidate = await shortenFields(candidate, issues);
+        } catch (err) {
+          if (!(err instanceof ParseError)) throw err;
+          break;
+        }
+      }
+
       const problem = validate(candidate);
       if (problem) {
         lastProblem = problem;
@@ -865,7 +913,7 @@ async function main() {
   console.log(`Wrote post.json (formats: ${post.formats.join(", ")})`);
 }
 
-module.exports = { buildSlideSvg, buildReelFrameSvg, renderSlide, renderReel, stagePlan, slidesFrom, validate, main, ICON_NAMES };
+module.exports = { buildSlideSvg, buildReelFrameSvg, renderSlide, renderReel, stagePlan, slidesFrom, validate, lengthIssues, main, ICON_NAMES };
 
 if (require.main === module) {
   main().catch((err) => {
