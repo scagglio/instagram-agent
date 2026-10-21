@@ -341,6 +341,8 @@ async function draftGuide(topic, history, feedback) {
     `- caption: first line hooks, keep it short, end with a question. Max ${account.captionMaxWords} words, a few emoji are fine.\n` +
     `- hashtags: exactly ${account.hashtagCount}, relevant, no spaces.\n\n` +
     `Use generic names only: no brands, companies, products, apps, websites or people. ` +
+    `Leave out anything with real safety risk: solvents or chemical smoothing (acetone, vapor baths), resin handling, open flames, ` +
+    `power tools or pressure equipment. Stick to techniques a hobbyist can do safely at a desk. ` +
     `Numbers only where they are widely accepted typical starting points, never as guarantees. ` +
     `All slide text is plain text with no emoji and no hashtags.\n\n` +
     `Allowed icon names: ${ICON_NAMES.join(", ")}\n\n` +
@@ -402,7 +404,8 @@ async function reviewPost(post) {
     `Reject only text that states or clearly implies a print is food safe, waterproof or watertight, heat proof, or safe for load-bearing or safety-critical use.\n` +
     `- It contains no invented statistics, quotes, studies, or news, and no risky factual claims.\n` +
     `- Every number is a widely accepted typical starting-point value or range for 3D printing (not a made-up measurement), and is not presented as a guarantee.\n` +
-    `- The advice is accurate and safe to follow, and the cheat sheet matches what the slides say.\n` +
+    `- The advice is accurate and safe to follow, and the cheat sheet matches what the slides say. ` +
+    `Reject any technique involving solvents or chemical smoothing, resin, open flames, or power or pressure tools.\n` +
     `- Any prediction or forward-looking statement is hedged and never presented as certain.\n` +
     `- The cover hook is honest: the slides deliver what it promises, with no fake urgency or exaggeration.\n` +
     `- It matches the stated voice and audience, and is not offensive, misleading, or spammy.\n\n` +
@@ -710,17 +713,22 @@ function closingSvg(slide, d, st) {
   let out = "";
   out += `<rect x="${M}" y="150" width="140" height="14" rx="7" fill="${accent}"/>`;
 
-  const head = fitText(slide.title.toUpperCase(), [100, 90, 80, 70, 60], W - 2 * M, 4, UP);
-  const lh = Math.round(head.size * 1.12);
-  out += textBlock(head.lines, M, 300 + head.size * 0.6, head.size, lh, `font-weight="700" fill="${text}"`);
-  const endY = 300 + head.size * 0.6 + (head.lines.length - 1) * lh;
-
+  // Shrink the headline until the body and the Follow button fit above the tagline box
   const sub = fitText(slide.body, [48, 44, 40], W - 2 * M, 4, LO);
   const slh = Math.round(sub.size * 1.35);
+  const headSizes = [100, 90, 80, 70, 60, 54];
+  let head, lh, endY;
+  for (let k = 0; k < headSizes.length; k++) {
+    head = fitText(slide.title.toUpperCase(), headSizes.slice(k), W - 2 * M, 4, UP);
+    lh = Math.round(head.size * 1.12);
+    endY = 300 + head.size * 0.6 + (head.lines.length - 1) * lh;
+    if (endY + 90 + (sub.lines.length - 1) * slh + 80 <= 950) break;
+  }
+  out += textBlock(head.lines, M, 300 + head.size * 0.6, head.size, lh, `font-weight="700" fill="${text}"`);
   if (st >= 2) out += textBlock(sub.lines, M, endY + 90, sub.size, slh, `fill="${text}" fill-opacity="0.88"`);
 
   if (st >= 3) {
-    const btnY = Math.min(endY + 90 + (sub.lines.length - 1) * slh + 80, 930);
+    const btnY = Math.min(endY + 90 + (sub.lines.length - 1) * slh + 80, 950);
     out += `<rect x="${M}" y="${btnY}" width="${W - 2 * M}" height="120" rx="60" fill="${accent}"/>
     <text x="${W / 2}" y="${btnY + 77}" font-size="48" font-weight="700" fill="${background}" text-anchor="middle">FOLLOW ${esc(account.handle.toUpperCase())}</text>`;
 
