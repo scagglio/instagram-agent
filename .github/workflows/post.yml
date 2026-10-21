@@ -9,6 +9,11 @@ on:
         description: 'Draft only (do not post to Instagram)'
         type: boolean
         default: true
+      post_type:
+        description: 'Post type (auto follows the guideEvery rotation)'
+        type: choice
+        options: [auto, tips, guide]
+        default: auto
       format:
         description: 'Post format (leave on "config" to use postFormat from account.json)'
         type: choice
@@ -49,6 +54,7 @@ jobs:
         run: node generate.js
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          POST_TYPE: ${{ github.event_name == 'workflow_dispatch' && inputs.post_type != 'auto' && inputs.post_type || '' }}
 
       - name: Commit images so Instagram can fetch them
         run: |

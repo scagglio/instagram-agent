@@ -44,5 +44,16 @@
   },
   "pillarStyles": {
     "Craft and gift ideas you can make with a 3D printer": "One craft or gift idea per slide, with a practical tip for printing or finishing it. Prefer decorative and desk items (ornaments, organizers, nameplates, figurines, wall art, keychains, cable holders). Avoid items that hold food, drink or water, carry weight, or touch heat, so no safety claims are needed. Keep cheat sheet values very short, like \"PLA\" or \"0.2 mm\"."
-  }
+  },
+  "guideEvery": 3,
+  "guideTopics": [
+    "Filament types and what each one is best for",
+    "Common print defects and the quick fix for each",
+    "Infill patterns and when to use each one",
+    "Essential tools for cleaning up and finishing prints",
+    "3D printing terms every beginner should know",
+    "Slicer settings that change print quality the most",
+    "Ways to make prints stronger without changing the model",
+    "Finishing techniques for a professional-looking print"
+  ]
 }

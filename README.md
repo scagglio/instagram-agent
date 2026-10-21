@@ -128,6 +128,18 @@ Posts are swipeable carousels by default: a cover with a hook, numbered content 
 
 ---
 
+## Guide posts (the saveable cheat sheet)
+
+Every third post is a **guide** instead of a tips carousel: a numbered reference sheet in the
+"14 resources for 3D printing" style. The first slide shows every entry in a grid (name, one line,
+an icon) with a "Save this guide" bar, the next slides explain each entry with a "Best for" tag,
+and the usual closing slide ends it. Guides post as carousels only, even when reels are on.
+
+- `guideEvery` in `account.json`: how often a guide runs (3 = every third post, 0 = never).
+- `guideTopics`: the topics guides rotate through. Keep them generic: the account rules forbid
+  naming brands, apps or websites, and the reviewer rejects drafts that do.
+- Manual runs: **Run workflow → Post type** lets you force `guide` or `tips` for one run.
+
 ## Keeping it running
 
 - **Failure alerts:** GitHub > Settings > Notifications > Actions. Turn on emails for failed workflows so you know when a run breaks.

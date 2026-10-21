@@ -13,6 +13,8 @@
 // Reels: set POST_FORMAT env (or "postFormat" in account.json) to carousel | reel | both.
 // A reel is the same slides animated piece by piece (needs ffmpeg). Optional "reelPace" (default 0.62,
 // lower = faster) and an optional reel-music.mp3 in the repo root.
+// Guide posts: a saveable numbered reference sheet mixed in every "guideEvery" posts (default 3,
+// 0 turns them off), on topics from "guideTopics". POST_TYPE=tips|guide forces a type.
 // Optional in account.json:
 //   "slideCount"   total slides including cover, cheat sheet and closing (5-10, default 7)
 //   "hookStyle"    extra guidance for cover hooks
@@ -38,6 +40,21 @@ const POST_FORMAT = FORMATS.includes(process.env.POST_FORMAT)
   : "carousel";
 const WANT_CAROUSEL = POST_FORMAT !== "reel";
 const WANT_REEL = POST_FORMAT !== "carousel"; // cover, cheat sheet and closing are the other three
+
+// Post types: "tips" is the original carousel; "guide" is a saveable numbered reference sheet
+// (a grid of 8 to 12 entries on the first slide, detail slides after). Guides are mixed in every
+// account.guideEvery posts (default 3, 0 turns them off); POST_TYPE=tips|guide forces one.
+const POST_TYPES = ["tips", "guide"];
+const DEFAULT_GUIDE_TOPICS = [
+  "Filament types and what each one is best for",
+  "Common print defects and the quick fix for each",
+  "Infill patterns and when to use each one",
+  "Essential tools for cleaning up and finishing prints",
+  "3D printing terms every beginner should know",
+  "Slicer settings that change print quality the most",
+  "Ways to make prints stronger without changing the model",
+  "Finishing techniques for a professional-looking print",
+];
 
 function loadHistory() {
   return fs.existsSync(HISTORY_PATH) ? JSON.parse(fs.readFileSync(HISTORY_PATH, "utf8")) : [];
@@ -65,6 +82,9 @@ const ICONS = {
   rocket: `<path d="M50 8 C72 24 74 54 62 74 H38 C26 54 28 24 50 8 Z"/><circle cx="50" cy="40" r="8"/><path d="M38 62 L22 82 L38 78"/><path d="M62 62 L78 82 L62 78"/>`,
   target: `<circle cx="50" cy="50" r="38"/><circle cx="50" cy="50" r="24"/><circle cx="50" cy="50" r="8" fill="currentColor"/>`,
   bolt: `<polygon points="58,6 22,56 46,56 40,94 78,42 54,42"/>`,
+  wrench: `<path d="M62 14 A22 22 0 0 0 40 42 L14 68 A9 9 0 0 0 30 84 L56 58 A22 22 0 0 0 84 36 L70 44 L60 40 L56 30 Z"/>`,
+  ruler: `<rect x="10" y="34" width="80" height="32" rx="4"/><line x1="24" y1="34" x2="24" y2="48"/><line x1="38" y1="34" x2="38" y2="54"/><line x1="52" y1="34" x2="52" y2="48"/><line x1="66" y1="34" x2="66" y2="54"/><line x1="80" y1="34" x2="80" y2="48"/>`,
+  grid: `<rect x="14" y="14" width="72" height="72" rx="6"/><line x1="38" y1="14" x2="38" y2="86"/><line x1="62" y1="14" x2="62" y2="86"/><line x1="14" y1="38" x2="86" y2="38"/><line x1="14" y1="62" x2="86" y2="62"/>`,
 };
 const ICON_NAMES = Object.keys(ICONS);
 
@@ -186,6 +206,7 @@ const optStr = (v) => (typeof v === "string" ? v.trim() : "");
 // Every length limit, as [path, text, max, unit, slack]. Slack is the tolerance the renderer
 // allows past the limit given to Claude.
 function lengthRules(p) {
+  if (p.type === "guide") return guideLengthRules(p);
   const r = [
     ["cover.headline", p.cover.headline, 8, "words", 0],
     ["cover.subhead", p.cover.subhead, 16, "words", 0],
@@ -223,6 +244,7 @@ const describeIssue = (f) => `${f.path} "${f.text}" is ${f.count} ${f.unit} (max
 // Structural problems that make the draft unusable (null when the shape is fine)
 function structureProblem(p) {
   if (!p || typeof p !== "object") return "Draft was not a JSON object";
+  if (p.type === "guide") return guideStructureProblem(p);
   if (!p.cover || !isStr(p.cover.headline) || !isStr(p.cover.subhead)) return "cover needs a headline and subhead";
   if (!Array.isArray(p.slides) || p.slides.length !== CONTENT_COUNT) return `slides must be an array of exactly ${CONTENT_COUNT} items`;
   for (const [i, s] of p.slides.entries()) {
@@ -283,6 +305,89 @@ async function shortenFields(draft, issues) {
   return next;
 }
 
+
+// ---------- Guide posts ----------
+
+const GUIDE_MIN = 8;
+const GUIDE_MAX = 12;
+
+async function draftGuide(topic, history, feedback) {
+  const recent = history.slice(-30).map((h) => `- ${h.headline}`).join("\n") || "(none yet)";
+  const system =
+    `You run an Instagram account with no human editor, so every post must be safe to publish exactly as written.\n\n` +
+    briefText();
+  const user =
+    `Write a saveable "reference sheet" carousel: one numbered list that people save and come back to.\n` +
+    `Topic: ${topic}\n` +
+    `Today's date: ${new Date().toISOString().slice(0, 10)}\n\n` +
+    `Recent posts (do not repeat or closely paraphrase these):\n${recent}\n` +
+    (feedback
+      ? `\nYour earlier drafts were rejected. Fix EVERY problem below in the new draft, and do not reintroduce any of them:\n${feedback}\n` +
+        `Count words and characters carefully: limits are hard limits, so aim well under them.\n`
+      : "") +
+    `\nThe first slide shows every entry in a numbered grid (name plus a one-line description), like a cheat sheet. ` +
+    `The following slides explain each entry in a little more depth. Make it genuinely useful to save.\n\n` +
+    `Structure:\n` +
+    `- items: between ${GUIDE_MIN} and ${GUIDE_MAX} entries, in a sensible order. Each has:\n` +
+    `    name (max 3 words, the common generic name of the thing, e.g. "PETG", "Gyroid infill", "Stringing"),\n` +
+    `    line (max 6 words, what it is or does, shown under the name on the grid),\n` +
+    `    detail (max 24 words, the useful explanation: when to use it, how to spot it, or how to fix it),\n` +
+    `    bestFor (max 18 characters, a short tag such as "Outdoor parts" or "Fast drafts"),\n` +
+    `    icon (one icon name).\n` +
+    `- title: max 7 words and it MUST start with the number of items as digits, e.g. "10 Filaments and what each is for". Make it a hook people want to save.\n` +
+    `- highlight: one to three words copied exactly from the title, shown in the accent color.\n` +
+    `- subtitle: max 12 words, what the reader gets from this sheet.\n` +
+    `- closing: headline (max 8 words), body (max 20 words) asking which one they use or inviting a save or share, tagline (max 8 words). No links and no mention of a shop.\n` +
+    `- caption: first line hooks, keep it short, end with a question. Max ${account.captionMaxWords} words, a few emoji are fine.\n` +
+    `- hashtags: exactly ${account.hashtagCount}, relevant, no spaces.\n\n` +
+    `Use generic names only: no brands, companies, products, apps, websites or people. ` +
+    `Numbers only where they are widely accepted typical starting points, never as guarantees. ` +
+    `All slide text is plain text with no emoji and no hashtags.\n\n` +
+    `Allowed icon names: ${ICON_NAMES.join(", ")}\n\n` +
+    `Respond with ONLY valid JSON in this exact shape:\n` +
+    `{"hookOptions":["","","","",""],"title":"","highlight":"","subtitle":"",` +
+    `"items":[{"name":"","line":"","detail":"","bestFor":"","icon":""}],` +
+    `"closing":{"headline":"","body":"","tagline":""},"caption":"","hashtags":[]}`;
+  const draft = parseJson(await callClaude(system, user, 3500));
+  if (draft && typeof draft === "object") draft.type = "guide";
+  return draft;
+}
+
+function guideLengthRules(p) {
+  const r = [
+    ["title", p.title, 7, "words", 0],
+    ["subtitle", p.subtitle, 12, "words", 1],
+  ];
+  p.items.forEach((it, i) => {
+    r.push([`items.${i}.name`, it.name, 3, "words", 0]);
+    r.push([`items.${i}.name`, it.name, 20, "characters", 2]);
+    r.push([`items.${i}.line`, it.line, 6, "words", 1]);
+    r.push([`items.${i}.detail`, it.detail, 24, "words", 2]);
+    r.push([`items.${i}.bestFor`, it.bestFor, 18, "characters", 2]);
+  });
+  r.push(["closing.headline", p.closing.headline, 8, "words", 0]);
+  r.push(["closing.body", p.closing.body, 20, "words", 2]);
+  r.push(["closing.tagline", p.closing.tagline, 8, "words", 1]);
+  return r;
+}
+
+function guideStructureProblem(p) {
+  if (!isStr(p.title) || !isStr(p.subtitle)) return "guide needs a title and subtitle";
+  if (!Array.isArray(p.items) || p.items.length < GUIDE_MIN || p.items.length > GUIDE_MAX) {
+    return `items must have between ${GUIDE_MIN} and ${GUIDE_MAX} entries`;
+  }
+  for (const [i, it] of p.items.entries()) {
+    if (!it || !isStr(it.name) || !isStr(it.line) || !isStr(it.detail)) return `item ${i + 1} needs a name, line and detail`;
+  }
+  const lead = (p.title.trim().match(/^\d+/) || [])[0];
+  if (Number(lead) !== p.items.length) {
+    return `title must start with the number of items (${p.items.length}), e.g. "${p.items.length} ..."`;
+  }
+  if (!p.closing || !isStr(p.closing.headline) || !isStr(p.closing.body)) return "closing needs a headline and body";
+  if (!isStr(p.caption)) return "caption is missing";
+  return null;
+}
+
 async function reviewPost(post) {
   const system =
     `You are a strict content reviewer for an Instagram account that publishes with no human approval. ` +
@@ -311,6 +416,29 @@ async function reviewPost(post) {
 function slidesFrom(p) {
   const pickIcon = (name, fallback) => (ICONS[name] ? name : fallback);
   const fallbackIcons = ["layers", "target", "bolt", "check", "star", "cube"];
+  if (p.type === "guide") {
+    const items = p.items.map((it, i) => ({
+      name: it.name.trim(),
+      line: it.line.trim(),
+      detail: it.detail.trim(),
+      bestFor: optStr(it.bestFor),
+      icon: pickIcon(it.icon, fallbackIcons[i % fallbackIcons.length]),
+    }));
+    // Spread entries evenly over the detail slides, at most 3 per slide (10 -> 3, 3, 2, 2)
+    const details = [];
+    const pages = Math.ceil(items.length / 3);
+    let start = 0;
+    for (let k = 0; k < pages; k++) {
+      const size = Math.ceil((items.length - start) / (pages - k));
+      details.push({ kind: "guideDetail", start, items: items.slice(start, start + size), guideTitle: p.title.trim(), title: p.title.trim() });
+      start += size;
+    }
+    return [
+      { kind: "guide", title: p.title.trim(), body: p.subtitle.trim(), highlight: optStr(p.highlight), items },
+      ...details,
+      { kind: "closing", title: p.closing.headline.trim(), body: p.closing.body.trim(), tagline: optStr(p.closing.tagline) },
+    ];
+  }
   return [
     {
       kind: "cover",
@@ -344,6 +472,12 @@ function slidesFrom(p) {
 }
 
 function altTextFor(slide) {
+  if (slide.kind === "guide") {
+    return `${slide.title}. ${slide.body}. ` + slide.items.map((it, i) => `${i + 1}. ${it.name}: ${it.line}`).join(". ") + ".";
+  }
+  if (slide.kind === "guideDetail") {
+    return slide.items.map((it, i) => `${slide.start + i + 1}. ${it.name}. ${it.detail}${it.bestFor ? ` Best for: ${it.bestFor}.` : ""}`).join(" ");
+  }
   if (slide.kind === "cheat") {
     return `${slide.title}. ` + slide.items.map((it) => `${it.label}: ${it.value}`).join(". ") + ".";
   }
@@ -604,6 +738,108 @@ function closingSvg(slide, d, st) {
   return out;
 }
 
+
+// Guide overview: the whole list as a numbered two-column grid (the "save this" sheet)
+function guideSvg(slide, d, st) {
+  const { background, text, accent } = d;
+  let out = "";
+  const X0 = 50;
+  const innerW = W - 2 * X0;
+
+  // Title: number and highlighted words in the accent color
+  const head = fitText(slide.title.toUpperCase(), [84, 76, 68, 60, 54], innerW, 2, UP);
+  const lh = Math.round(head.size * 1.08);
+  const ty = 70 + head.size * 0.8;
+  const hl = [String(slide.title).match(/^\d+/)?.[0] || "", slide.highlight].join(" ");
+  out += headlineBlock(head.lines, X0, ty, head.size, lh, text, accent, hl).replace(/<text /g, '<text text-anchor="start" ');
+  const titleEnd = ty + (head.lines.length - 1) * lh;
+  const sub = fitOneLine(slide.body, [34, 31, 28, 25], innerW, LO);
+  out += `<text x="${X0}" y="${titleEnd + 56}" font-size="${sub}" font-weight="700" fill="${text}" fill-opacity="0.8">${esc(slide.body)}</text>`;
+
+  // Grid
+  const items = slide.items;
+  const rows = Math.ceil(items.length / 2);
+  const top = titleEnd + 92;
+  const bottom = H - 190;
+  const gap = 14;
+  const cellH = Math.min(150, Math.floor((bottom - top - (rows - 1) * gap) / rows));
+  const colW = Math.floor((innerW - gap) / 2);
+  items.forEach((it, i) => {
+    if (st < i + 2) return;
+    // Fill down the left column first, then the right, like a numbered list
+    const c = i < rows ? 0 : 1;
+    const r = i < rows ? i : i - rows;
+    const x = X0 + c * (colW + gap);
+    const y = top + r * (cellH + gap);
+    out += `<rect x="${x}" y="${y}" width="${colW}" height="${cellH}" rx="20" fill="${text}" fill-opacity="0.07" stroke="${accent}" stroke-opacity="0.35" stroke-width="2"/>`;
+    const bs = Math.min(48, cellH - 40);
+    out += `<rect x="${x + 16}" y="${y + 16}" width="${bs}" height="${bs}" rx="12" fill="${accent}"/>`;
+    const ds = Math.round(bs * (i + 1 >= 10 ? 0.5 : 0.66));
+    out += `<text x="${x + 16 + bs / 2}" y="${y + 16 + bs / 2 + ds * 0.36}" font-size="${ds}" font-weight="700" fill="${background}" text-anchor="middle">${i + 1}</text>`;
+    const iconSize = Math.min(64, cellH - 50);
+    out += icon(it.icon, x + colW - iconSize - 16, y + (cellH - iconSize) / 2, iconSize, accent, { strokeWidth: 7 });
+    const tx = x + 16 + bs + 14;
+    const tw = colW - (tx - x) - iconSize - 28;
+    const ns = fitOneLine(it.name, [36, 33, 30, 27, 24], tw, 0.66);
+    out += `<text x="${tx}" y="${y + 16 + bs * 0.72}" font-size="${ns}" font-weight="700" fill="${text}">${esc(it.name)}</text>`;
+    const line = fitText(it.line, [25, 23, 21, 19], tw, 2, LO);
+    out += textBlock(line.lines, tx, y + 16 + bs + 30, line.size, Math.round(line.size * 1.22), `fill="${text}" fill-opacity="0.78"`);
+  });
+
+  // Save bar
+  const by = H - 160;
+  out += `<rect x="${X0}" y="${by}" width="${innerW}" height="76" rx="38" fill="${accent}" fill-opacity="0.12" stroke="${accent}" stroke-opacity="0.6" stroke-width="2"/>`;
+  out += `<text x="${X0 + 36}" y="${by + 48}" font-size="27" font-weight="700" fill="${text}">SAVE THIS GUIDE  •  WHICH ONE DO YOU USE?</text>`;
+  out += `<text x="${X0 + innerW - 36}" y="${by + 48}" font-size="27" font-weight="700" fill="${accent}" text-anchor="end">SWIPE</text>`;
+  return out;
+}
+
+// Guide detail: up to three entries per slide, each with its explanation and a "best for" tag
+function guideDetailSvg(slide, d, st) {
+  const { background, text, accent } = d;
+  let out = "";
+  out += `<rect x="40" y="40" width="${W - 80}" height="1190" rx="40" fill="${text}" fill-opacity="0.04" stroke="${accent}" stroke-opacity="0.4" stroke-width="3"/>`;
+  const first = slide.start + 1;
+  const last = slide.start + slide.items.length;
+  const head = slide.guideTitle.toUpperCase();
+  const hs = fitOneLine(head, [34, 31, 28, 25, 22], W - 2 * M - 150, UP);
+  out += `<text x="${M}" y="132" font-size="${hs}" font-weight="700" fill="${accent}" letter-spacing="1">${esc(head)}</text>`;
+  out += `<text x="${W - M}" y="132" font-size="34" font-weight="700" fill="${text}" fill-opacity="0.7" text-anchor="end">${first}-${last}</text>`;
+  out += `<line x1="${M}" y1="166" x2="${W - M}" y2="166" stroke="${text}" stroke-opacity="0.15" stroke-width="2"/>`;
+
+  const gap = 28;
+  const avail = 1180 - 200;
+  const count = slide.items.length;
+  const cardH = Math.min(380, Math.floor((avail - (count - 1) * gap) / count));
+  const top = 200 + Math.floor((avail - (count * cardH + (count - 1) * gap)) / 2);
+  slide.items.forEach((it, i) => {
+    if (st < i + 2) return;
+    const y = top + i * (cardH + gap);
+    const n = slide.start + i + 1;
+    out += `<rect x="${M}" y="${y}" width="${W - 2 * M}" height="${cardH}" rx="28" fill="${accent}" fill-opacity="0.06" stroke="${accent}" stroke-opacity="0.3" stroke-width="2"/>`;
+    out += `<rect x="${M + 28}" y="${y + 28}" width="76" height="76" rx="18" fill="${accent}"/>`;
+    const nsz = n >= 10 ? 40 : 54;
+    out += `<text x="${M + 66}" y="${y + 28 + 38 + nsz * 0.36}" font-size="${nsz}" font-weight="700" fill="${background}" text-anchor="middle">${n}</text>`;
+    out += icon(it.icon, W - M - 28 - 72, y + 30, 72, accent, { strokeWidth: 6 });
+    const name = fitOneLine(it.name.toUpperCase(), [50, 46, 42, 38, 34], W - 2 * M - 260, UP);
+    out += `<text x="${M + 128}" y="${y + 28 + 38 + name * 0.35}" font-size="${name}" font-weight="700" fill="${text}">${esc(it.name.toUpperCase())}</text>`;
+    const detLines = cardH >= 340 ? 4 : 3;
+    const sizes = count === 3 ? [30, 28, 26, 24] : [34, 31, 29, 27, 25];
+    const det = fitText(it.detail, sizes, W - 2 * M - 56, detLines, LO);
+    out += textBlock(det.lines, M + 28, y + 146, det.size, Math.round(det.size * 1.28), `fill="${text}" fill-opacity="0.92"`);
+    if (it.bestFor) {
+      const label = "BEST FOR";
+      const val = it.bestFor;
+      const chipW = Math.round(label.length * 22 * 0.8 + val.length * 26 * 0.6 + 70);
+      const cy = y + cardH - 58;
+      out += `<rect x="${M + 28}" y="${cy}" width="${chipW}" height="44" rx="22" fill="${accent}" fill-opacity="0.16"/>`;
+      out += `<text x="${M + 50}" y="${cy + 30}" font-size="22" font-weight="700" fill="${accent}" letter-spacing="2">${label}</text>`;
+      out += `<text x="${M + 50 + label.length * 22 * 0.8 + 16}" y="${cy + 31}" font-size="26" font-weight="700" fill="${text}">${esc(val)}</text>`;
+    }
+  });
+  return out;
+}
+
 // The slide's drawing (everything inside the outer <svg>), in a 1080x1350 coordinate space
 function slideInner(slide, index, total, opts = {}) {
   const st = opts.stage == null ? ALL : opts.stage;
@@ -621,13 +857,16 @@ function slideInner(slide, index, total, opts = {}) {
   if (slide.kind === "cover") body = coverSvg(slide, account.design, st, reel);
   else if (slide.kind === "content") body = contentSvg(slide, index, account.design, st);
   else if (slide.kind === "cheat") body = cheatSvg(slide, account.design, st);
+  else if (slide.kind === "guide") body = guideSvg(slide, account.design, st);
+  else if (slide.kind === "guideDetail") body = guideDetailSvg(slide, account.design, st);
   else body = closingSvg(slide, account.design, st);
 
   // Footer on content slides: handle + counter
   let footer = "";
-  if (slide.kind === "content" || slide.kind === "cheat") {
+  if (slide.kind === "content" || slide.kind === "cheat" || slide.kind === "guideDetail") {
     const contentTotal = total - 3;
-    const label = slide.kind === "content" ? `${index} / ${contentTotal}` : "SAVE THIS";
+    const label =
+      slide.kind === "content" ? `${index} / ${contentTotal}` : slide.kind === "guideDetail" ? `${index} / ${total - 2}` : "SAVE THIS";
     footer = `<text x="${M}" y="${H - 80}" font-size="32" fill="${text}" fill-opacity="0.7">${esc(account.handle)}</text>
     <text x="${W - M}" y="${H - 80}" font-size="32" fill="${text}" fill-opacity="0.7" text-anchor="end" letter-spacing="1">${label}</text>`;
   }
@@ -773,12 +1012,20 @@ async function main() {
   if (!process.env.ANTHROPIC_API_KEY) throw new Error("ANTHROPIC_API_KEY is not set");
 
   const history = loadHistory();
-  const pillars = account.contentPillars;
-  // Live runs rotate through the pillars in order. Dry runs pick a random one, because
-  // dry runs are not logged to history and would otherwise always show the first pillar.
-  const first = DRY_RUN
-    ? Math.floor(Math.random() * pillars.length)
-    : history.length % pillars.length;
+  // Which kind of post: forced by POST_TYPE, else a guide every account.guideEvery posts
+  const guideEvery = account.guideEvery == null ? 3 : Number(account.guideEvery);
+  const postType = POST_TYPES.includes(process.env.POST_TYPE)
+    ? process.env.POST_TYPE
+    : guideEvery > 0 && (history.length + 1) % guideEvery === 0
+    ? "guide"
+    : "tips";
+  const isGuide = postType === "guide";
+
+  // Tips rotate through contentPillars, guides through guideTopics, each counting only its own past posts.
+  // Dry runs pick a random one, because dry runs are not logged to history.
+  const pillars = isGuide ? account.guideTopics || DEFAULT_GUIDE_TOPICS : account.contentPillars;
+  const done = history.filter((h) => (h.postType || "tips") === postType).length;
+  const first = DRY_RUN ? Math.floor(Math.random() * pillars.length) : done % pillars.length;
   // If a pillar cannot produce an acceptable post, fall back to the next one instead of
   // failing (otherwise every scheduled run retries the same stuck pillar forever).
   const tryPillars = [pillars[first], pillars[(first + 1) % pillars.length]];
@@ -788,7 +1035,9 @@ async function main() {
   let lastProblem = "";
 
   for (const candidatePillar of tryPillars) {
-    console.log(`Pillar: ${candidatePillar} | Slides: ${TOTAL_SLIDES} | Format: ${POST_FORMAT}`);
+    console.log(isGuide
+      ? `Guide: ${candidatePillar} | Format: carousel`
+      : `Pillar: ${candidatePillar} | Slides: ${TOTAL_SLIDES} | Format: ${POST_FORMAT}`);
     const problems = []; // every problem so far, so fixes don't undo earlier fixes
 
     for (let attempt = 1; attempt <= account.maxAttempts; attempt++) {
@@ -796,7 +1045,9 @@ async function main() {
       const feedback = problems.map((p, i) => `${i + 1}. ${p}`).join("\n");
       let candidate;
       try {
-        candidate = await draftPost(candidatePillar, history, feedback);
+        candidate = isGuide
+          ? await draftGuide(candidatePillar, history, feedback)
+          : await draftPost(candidatePillar, history, feedback);
       } catch (err) {
         if (!(err instanceof ParseError)) throw err; // real problems (bad key, missing config) should fail loudly
         lastProblem = `Your response could not be parsed (${err.message}). Respond with only the JSON object.`;
@@ -866,6 +1117,7 @@ async function main() {
   const slides = slidesFrom(approved);
   const stamp = new Date().toISOString().slice(0, 16).replace(/[-:T]/g, "");
   const post = {
+    postType,
     pillar,
     headline: slides[0].title,
     subhead: slides[0].body,
@@ -876,7 +1128,7 @@ async function main() {
   };
 
   // Carousel images
-  if (WANT_CAROUSEL) {
+  if (WANT_CAROUSEL || isGuide) {
     const dir = DRY_RUN ? "drafts" : "images";
     fs.mkdirSync(path.join(__dirname, dir), { recursive: true });
     const imageFiles = [];
@@ -890,8 +1142,8 @@ async function main() {
     console.log(`Rendered ${imageFiles.length} carousel slides in ${dir}/`);
   }
 
-  // Reel video
-  if (WANT_REEL) {
+  // Reel video (guides are dense reference sheets, so they post as carousels only)
+  if (WANT_REEL && !isGuide) {
     const dir = DRY_RUN ? "reels-drafts" : "reels";
     fs.mkdirSync(path.join(__dirname, dir), { recursive: true });
     const reelFile = `${dir}/reel-${stamp}.mp4`;

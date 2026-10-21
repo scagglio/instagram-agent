@@ -84,6 +84,7 @@ function logHistory(post, extra) {
   const history = fs.existsSync(HISTORY_PATH) ? JSON.parse(fs.readFileSync(HISTORY_PATH, "utf8")) : [];
   history.push({
     date: new Date().toISOString(),
+    postType: post.postType || "tips",
     pillar: post.pillar,
     headline: post.headline,
     subhead: post.subhead,
