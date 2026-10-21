@@ -334,7 +334,7 @@ async function draftGuide(topic, history, feedback) {
     `    detail (max 24 words, the useful explanation: when to use it, how to spot it, or how to fix it),\n` +
     `    bestFor (max 18 characters, a short tag such as "Outdoor parts" or "Fast drafts"),\n` +
     `    icon (one icon name).\n` +
-    `- title: max 7 words and it MUST start with the number of items as digits, e.g. "10 Filaments and what each is for". Make it a hook people want to save.\n` +
+    `- title: max 7 words and 42 characters, and it MUST start with the number of items as digits, e.g. "10 Filaments and what each is for". Make it a hook people want to save.\n` +
     `- highlight: one to three words copied exactly from the title, shown in the accent color.\n` +
     `- subtitle: max 12 words, what the reader gets from this sheet.\n` +
     `- closing: headline (max 8 words), body (max 20 words) asking which one they use or inviting a save or share, tagline (max 8 words). No links and no mention of a shop.\n` +
@@ -358,6 +358,7 @@ async function draftGuide(topic, history, feedback) {
 function guideLengthRules(p) {
   const r = [
     ["title", p.title, 7, "words", 0],
+    ["title", p.title, 42, "characters", 2],
     ["subtitle", p.subtitle, 12, "words", 1],
   ];
   p.items.forEach((it, i) => {
@@ -755,7 +756,8 @@ function guideSvg(slide, d, st) {
   const innerW = W - 2 * X0;
 
   // Title: number and highlighted words in the accent color
-  const head = fitText(slide.title.toUpperCase(), [84, 76, 68, 60, 54], innerW, 2, UP);
+  let head = fitText(slide.title.toUpperCase(), [84, 76, 68, 60, 54], innerW, 2, UP);
+  if (head.lines.length > 2) head = fitText(slide.title.toUpperCase(), [64, 58, 52, 46], innerW, 3, UP);
   const lh = Math.round(head.size * 1.08);
   const ty = 70 + head.size * 0.8;
   const hl = [String(slide.title).match(/^\d+/)?.[0] || "", slide.highlight].join(" ");
@@ -809,8 +811,12 @@ function guideDetailSvg(slide, d, st) {
   out += `<rect x="40" y="40" width="${W - 80}" height="1190" rx="40" fill="${text}" fill-opacity="0.04" stroke="${accent}" stroke-opacity="0.4" stroke-width="3"/>`;
   const first = slide.start + 1;
   const last = slide.start + slide.items.length;
-  const head = slide.guideTitle.toUpperCase();
-  const hs = fitOneLine(head, [34, 31, 28, 25, 22], W - 2 * M - 150, UP);
+  // Running header: the guide title, cut at a word boundary if it would reach the range label
+  const room = W - 2 * M - 160;
+  let head = slide.guideTitle.toUpperCase();
+  const hs = fitOneLine(head, [34, 31, 28, 26], room, UP);
+  const maxChars = Math.floor(room / (hs * UP));
+  if (head.length > maxChars) head = head.slice(0, maxChars - 1).replace(/\s+\S*$/, "") + "…";
   out += `<text x="${M}" y="132" font-size="${hs}" font-weight="700" fill="${accent}" letter-spacing="1">${esc(head)}</text>`;
   out += `<text x="${W - M}" y="132" font-size="34" font-weight="700" fill="${text}" fill-opacity="0.7" text-anchor="end">${first}-${last}</text>`;
   out += `<line x1="${M}" y1="166" x2="${W - M}" y2="166" stroke="${text}" stroke-opacity="0.15" stroke-width="2"/>`;
