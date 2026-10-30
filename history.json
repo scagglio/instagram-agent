@@ -235,5 +235,25 @@
     ],
     "mediaId": "18089180909317244",
     "permalink": "https://www.instagram.com/p/DfDQw_NDJWz/"
+  },
+  {
+    "date": "2026-10-30T19:56:01.613Z",
+    "postType": "tips",
+    "pillar": "Beginner-friendly 3D printing tip",
+    "headline": "Your bed temp isn't real",
+    "subhead": "Dial settings and actual temps can drift apart. Here's what to check.",
+    "caption": "Your heated bed dial is just a suggestion, not a promise. The actual surface temperature can drift from what your printer displays, especially over time. A simple thermometer probe takes the guesswork out and helps you dial in real adhesion. Have you ever checked what your bed temperature actually is? 🌡️\n\n#3dprintingtips #3dprintingbasics #bedtemperature #makerfriendly #3dprintersetup #printfail",
+    "format": "carousel",
+    "imageFiles": [
+      "images/post-202610301955-s01.jpg",
+      "images/post-202610301955-s02.jpg",
+      "images/post-202610301955-s03.jpg",
+      "images/post-202610301955-s04.jpg",
+      "images/post-202610301955-s05.jpg",
+      "images/post-202610301955-s06.jpg",
+      "images/post-202610301955-s07.jpg"
+    ],
+    "mediaId": "18198587908393299",
+    "permalink": "https://www.instagram.com/p/DfIYfslGnQT/"
   }
 ]
